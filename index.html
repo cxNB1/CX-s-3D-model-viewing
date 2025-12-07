@@ -1,0 +1,2611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cx3d View - Cinematic Experience</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Import Map for Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "fflate": "https://cdn.jsdelivr.net/npm/fflate@0.8.0/esm/browser.js"
+            }
+        }
+    </script>
+
+    <style>
+        :root {
+            --primary-color: #dc2626; /* Red 600 */
+            --dark-bg: #0f0f11;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--dark-bg);
+            color: #d1d5db; /* Gray 300 */
+            overflow: hidden; /* Prevent scroll on body */
+            user-select: none; /* Prevent text selection during drag */
+        }
+        /* Custom scrollbar for control panels */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: rgba(220, 38, 38, 0.4); /* Red 600 with alpha */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        /* Glassmorphism/Neumorphism style for control panels */
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.4); 
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(220, 38, 38, 0.2); /* Red border */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+            /* Transition for smooth sliding and fading */
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+        }
+        
+        /* Hide Left Panel: Slide to Left */
+        .panel-hidden-left {
+            transform: translateX(-150%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Hide Right Panel: Slide to Right */
+        .panel-hidden-right {
+            transform: translateX(150%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* New: Faded state for interaction */
+        .panel-faded {
+            opacity: 0.05 !important; 
+            pointer-events: none;     /* Allow clicking through to the model */
+        }
+
+        /* Specific style for the movable control bar */
+        #transform-controls-bar {
+            cursor: grab;
+            transition: none; /* Disable Tailwind transitions during drag */
+            touch-action: none; /* Prevent browser touch behavior interference */
+        }
+        #transform-controls-bar:active {
+            cursor: grabbing;
+        }
+        /* Glowing 3D text in header */
+        #logo-3d {
+            text-shadow: 0 0 5px var(--primary-color), 0 0 10px var(--primary-color), 0 0 15px rgba(220, 38, 38, 0.5);
+            -webkit-box-shadow: 0 0 5px rgba(220, 38, 38, 0.5);
+            -moz-box-shadow: 0 0 5px rgba(220, 38, 38, 0.5);
+            box-shadow: 0 0 5px rgba(220, 38, 38, 0.5);
+            background: linear-gradient(90deg, #ef4444, #991b1b); /* Red 500 to Red 800 */
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .active-model-item {
+            background-color: rgba(220, 38, 38, 0.3); /* Red 600 with alpha */
+            border-left: 3px solid #dc2626;
+        }
+        
+        /* Animation for Cloud Modal */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .modal-animate {
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+
+        /* Scan Animation */
+        @keyframes scanLine {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scan-overlay {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: #ef4444; /* Red 500 */
+            box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+            animation: scanLine 2s linear infinite;
+        }
+
+        /* Welcome Overlay Styles */
+        #welcome-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999; /* Very high z-index */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 15, 17, 0.6); /* Semi-transparent dark background */
+            backdrop-filter: blur(5px);
+            transition: opacity 0.8s ease, visibility 0.8s;
+        }
+        
+        #welcome-overlay.hidden-overlay {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .welcome-text {
+            font-family: 'Orbitron', sans-serif;
+            background: linear-gradient(90deg, #ffffff, #d1d5db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body class="min-h-screen overflow-hidden">
+
+    <!-- Welcome Overlay -->
+    <div id="welcome-overlay">
+        <h1 class="welcome-text text-4xl md:text-6xl font-bold text-center mb-4 px-4 tracking-wider">
+            Welcome to CX's<br>3D model viewing website
+        </h1>
+        <p class="text-gray-300 text-sm md:text-base mb-8 tracking-widest uppercase opacity-80">Interactive Cinematic Experience</p>
+        
+        <button id="enter-btn" class="px-8 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full shadow-[0_0_20px_rgba(220,38,38,0.5)] hover:shadow-[0_0_30px_rgba(220,38,38,0.8)] transition-all duration-300 transform hover:scale-105 border border-red-400/50">
+            ENTER EXPERIENCE
+        </button>
+    </div>
+
+    <!-- 3D 渲染容器 (3D Rendering Container) -->
+    <div id="three-container" class="fixed inset-0 z-0"></div>
+
+    <!-- 顶部 Logo/Header (Top Logo/Header) -->
+    <header class="absolute top-0 left-0 right-0 p-4 md:p-6 z-20 flex items-center justify-between pointer-events-none">
+        <!-- 左侧 LOGO -->
+        <div class="flex items-end space-x-1 pointer-events-auto select-none">
+            <span class="text-3xl md:text-4xl font-extrabold text-white tracking-tight leading-none" style="font-family: 'Orbitron', sans-serif;">CX</span>
+            <span id="logo-3d" class="text-4xl md:text-5xl font-extrabold tracking-tight leading-none px-2 rounded-lg border border-red-500">3D</span>
+            <!-- Removed VIEW and Cinematic Experience text as requested -->
+        </div>
+
+        <!-- 右侧工具栏 (Export, Import & Toggle UI) -->
+        <div class="flex items-center space-x-3 pointer-events-auto">
+            
+            <!-- 导出按钮 (Updated with Label) -->
+            <div class="relative flex flex-col items-center">
+                <button id="export-menu-btn" class="bg-gray-800/50 hover:bg-red-600/80 text-white p-3 rounded-lg backdrop-blur-sm border border-gray-600/50 transition-all duration-300 group shadow-lg" title="导出模型">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </button>
+                <span class="absolute top-full mt-1 text-[10px] font-bold text-gray-400 group-hover:text-red-300 tracking-widest whitespace-nowrap pointer-events-none transition-colors">导出</span>
+            </div>
+
+            <!-- 导入按钮 (+) -->
+            <div class="relative flex flex-col items-center">
+                <button id="import-model-btn" class="bg-red-600 hover:bg-red-500 text-white p-3 rounded-lg backdrop-blur-sm border border-red-400/50 shadow-lg shadow-red-500/30 transition-all duration-300 hover:scale-105 group" title="导入模型">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+                <span class="absolute top-full mt-1 text-[10px] font-bold text-red-300 tracking-widest whitespace-nowrap pointer-events-none">导入</span>
+            </div>
+
+            <!-- 显隐控制按钮 (眼睛) - 修改：增加底部常驻 GPU 显示 -->
+            <div class="relative flex flex-col items-center group/gpu">
+                <button id="toggle-ui-btn" class="bg-gray-800/50 hover:bg-gray-700/80 text-white p-3 rounded-lg backdrop-blur-sm border border-gray-600/50 transition-all duration-300 group shadow-lg" title="切换界面显示">
+                    <!-- Eye Open Icon (Default) -->
+                    <svg id="icon-eye-open" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <!-- Eye Closed Icon (Hidden) -->
+                    <svg id="icon-eye-closed" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                </button>
+                <!-- 显卡名称显示区域 -->
+                <span id="gpu-name-display" class="absolute top-full mt-1 text-[10px] font-bold text-gray-400 tracking-widest whitespace-nowrap max-w-[100px] overflow-hidden text-ellipsis text-center pointer-events-none">检测中...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 消息提示框 (Message Box) -->
+    <div id="message-box" role="alert" class="opacity-0 transition duration-500 z-50 pointer-events-none"></div>
+
+    <!-- 删除确认弹窗 -->
+    <div id="delete-confirm-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-2xl max-w-sm w-full mx-4 modal-animate border border-red-500/50 shadow-2xl">
+            <div class="text-center">
+                <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-500/20 mb-4">
+                    <svg class="h-6 w-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-white mb-2">确认删除?</h3>
+                <p id="delete-model-name" class="text-sm text-gray-300 mb-6">您确定要删除此模型吗？此操作无法撤销。</p>
+                <div class="flex space-x-3">
+                    <button id="delete-cancel-btn" class="flex-1 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition text-sm">取消</button>
+                    <button id="delete-confirm-btn" class="flex-1 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition text-sm font-bold shadow-lg shadow-red-600/30">删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 扫描功能弹窗 -->
+    <div id="scan-simulation-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center bg-black/80 backdrop-blur-md">
+        <div class="glass-panel p-0 rounded-2xl max-w-lg w-full mx-4 modal-animate border border-emerald-500/50 shadow-2xl relative overflow-hidden flex flex-col h-[60vh] md:h-[70vh]">
+            <!-- 扫描线动画 -->
+            <div class="scan-overlay z-20 pointer-events-none"></div>
+            <!-- 视频预览区域 -->
+            <div class="relative w-full h-full bg-black flex items-center justify-center overflow-hidden group">
+                <video id="scan-video" autoplay playsinline class="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-500"></video>
+                <div id="scan-fallback-bg" class="absolute inset-0 w-full h-full hidden flex items-center justify-center bg-gray-900">
+                     <div class="w-32 h-32 border-4 border-emerald-500/30 rounded-lg flex items-center justify-center animate-pulse">
+                        <span class="text-emerald-500/50 text-xs font-mono">SIMULATION</span>
+                     </div>
+                </div>
+                <div id="scan-loading" class="text-center z-10 transition-opacity duration-300">
+                    <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-emerald-500/20 mb-4 animate-pulse">
+                        <svg class="h-8 w-8 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </div>
+                    <p id="scan-loading-text" class="text-emerald-400 font-mono text-sm animate-pulse">INITIALIZING OPTICS...</p>
+                </div>
+                <!-- 扫描网格覆盖 -->
+                <div class="absolute inset-0 border-2 border-emerald-500/30 m-4 rounded-lg pointer-events-none">
+                    <div class="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-500"></div>
+                    <div class="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-500"></div>
+                    <div class="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-500"></div>
+                    <div class="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-500"></div>
+                </div>
+            </div>
+            <!-- 底部控制栏 -->
+            <div class="p-4 bg-gray-900/90 backdrop-blur border-t border-gray-700 flex justify-between items-center z-30 shrink-0">
+                <div class="text-xs text-gray-400">
+                    <span class="block text-white font-bold tracking-widest">3D SCANNER</span>
+                    Status: <span id="scan-status" class="text-yellow-400">Standby</span>
+                </div>
+                <div class="flex space-x-3">
+                    <button id="scan-close-btn" class="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 text-xs font-bold uppercase tracking-wider transition-colors">关闭</button>
+                    <button id="scan-capture-btn" class="px-6 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 text-xs font-bold uppercase tracking-wider shadow-lg shadow-emerald-600/20 transition-all transform active:scale-95">
+                        <span class="flex items-center">
+                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path></svg>
+                            开始采集
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 渲染模式选择弹窗 -->
+    <div id="cloud-render-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-2xl max-w-lg w-full mx-4 modal-animate border border-indigo-500/50 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-indigo-600/20 rounded-full blur-3xl"></div>
+            <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-purple-600/20 rounded-full blur-3xl"></div>
+            <h3 class="text-2xl font-bold text-white mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mr-2 text-indigo-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" />
+                </svg>
+                选择模型来源
+            </h3>
+            <p class="text-gray-300 mb-6 text-sm">请选择加载模型的方式。支持多模型导入。</p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button id="modal-local-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-600 bg-gray-800/50 hover:bg-gray-700/80 hover:border-indigo-400 transition duration-200 group">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400 group-hover:text-white mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    <span class="font-bold text-base text-white">本地文件</span>
+                    <span class="text-xs text-gray-400 mt-1 text-center">本机性能<br>即时预览</span>
+                </button>
+                <button id="modal-cloud-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-indigo-500 bg-indigo-600/20 hover:bg-indigo-600/40 transition duration-200 group relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-indigo-400 group-hover:text-white mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                    </svg>
+                    <span class="font-bold text-base text-white">云渲染</span>
+                    <span class="text-xs text-indigo-200 mt-1 text-center">云端计算<br>支持大文件</span>
+                </button>
+                <button id="modal-scan-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-500 bg-emerald-600/20 hover:bg-emerald-600/40 transition duration-200 group relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-emerald-400 group-hover:text-white mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span class="font-bold text-base text-white">扫描模型</span>
+                    <span class="text-xs text-emerald-200 mt-1 text-center">拍照建模<br>AI生成</span>
+                </button>
+            </div>
+            <button id="modal-cancel-btn" class="mt-6 w-full text-sm text-gray-500 hover:text-gray-300 py-2 transition">取消操作</button>
+        </div>
+    </div>
+
+    <!-- 导出模型弹窗 -->
+    <div id="export-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-2xl max-w-lg w-full mx-4 modal-animate border border-emerald-500/50 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-emerald-600/20 rounded-full blur-3xl"></div>
+            <h3 class="text-2xl font-bold text-white mb-4 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mr-2 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" />
+                </svg>
+                导出当前模型
+            </h3>
+            <p class="text-gray-300 mb-6 text-sm">请选择导出的文件格式。导出的是当前<b>选中</b>的模型。</p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button id="export-glb-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-emerald-500 bg-emerald-600/20 hover:bg-emerald-600/40 transition duration-200 group relative overflow-hidden">
+                    <div class="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <span class="font-bold text-base text-white">GLB</span>
+                    <span class="text-xs text-emerald-200 mt-1 text-center">推荐</span>
+                </button>
+                <button id="export-obj-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-600 bg-gray-800/50 hover:bg-gray-700/80 hover:border-emerald-400 transition duration-200 group">
+                    <span class="font-bold text-base text-white">OBJ</span>
+                    <span class="text-xs text-gray-400 mt-1 text-center">几何体</span>
+                </button>
+                <button id="export-stl-btn" class="flex flex-col items-center justify-center p-4 rounded-xl border border-gray-600 bg-gray-800/50 hover:bg-gray-700/80 hover:border-emerald-400 transition duration-200 group">
+                    <span class="font-bold text-base text-white">STL</span>
+                    <span class="text-xs text-gray-400 mt-1 text-center">3D打印</span>
+                </button>
+            </div>
+            <button id="export-cancel-btn" class="mt-6 w-full text-sm text-gray-500 hover:text-gray-300 py-2 transition">取消操作</button>
+        </div>
+    </div>
+
+    <!-- 云渲染地址输入弹窗 -->
+    <div id="cloud-address-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-2xl max-w-md w-full mx-4 modal-animate border border-indigo-500/50 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-10 -right-10 w-32 h-32 bg-indigo-600/20 rounded-full blur-3xl"></div>
+            <h3 class="text-xl font-bold text-white mb-4 flex items-center">云渲染服务器配置</h3>
+            <div class="mb-6">
+                <input type="text" id="cloud-url-input" placeholder="https://render-cluster.example.com" class="w-full bg-gray-800/80 border border-gray-600 rounded-lg py-3 px-4 text-white focus:outline-none focus:border-indigo-500 text-sm">
+                <div class="mt-2 flex justify-end">
+                    <button id="use-localhost-btn" class="text-xs text-indigo-400 hover:text-indigo-300 underline">使用本机 (Localhost)</button>
+                </div>
+            </div>
+            <div class="flex space-x-3">
+                <button id="address-cancel-btn" class="flex-1 py-2.5 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition text-sm">返回</button>
+                <button id="address-confirm-btn" class="flex-[2] py-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition font-bold text-sm">连接</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 左侧模型选择面板 - Updated to top-24 -->
+    <aside id="left-panel" class="glass-panel w-40 md:w-56 p-[6px] rounded-xl absolute top-24 left-4 z-10 custom-scrollbar self-start max-h-[calc(100vh-8rem)] overflow-y-auto panel-hidden-left flex flex-col">
+        <h2 class="text-lg font-bold mb-4 border-b border-indigo-500/50 pb-2 text-white pl-2">场景列表</h2>
+        <div id="scene-list-container" class="space-y-2 flex-grow overflow-y-auto min-h-[100px] mb-4">
+            <div class="text-center text-gray-500 text-sm py-4 italic">场景为空</div>
+        </div>
+        <div class="mt-auto px-1">
+            <h3 class="text-xs font-bold text-indigo-400 uppercase mb-2 tracking-wider">快速添加</h3>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <button data-add="cube" class="add-primitive-btn bg-gray-700 hover:bg-indigo-600 text-white p-2 rounded-lg text-xs flex flex-col items-center justify-center transition duration-200 border border-gray-600">
+                    <div class="w-4 h-4 border-2 border-current mb-1"></div>
+                    <span>立方</span>
+                </button>
+                <button data-add="sphere" class="add-primitive-btn bg-gray-700 hover:bg-indigo-600 text-white p-2 rounded-lg text-xs flex flex-col items-center justify-center transition duration-200 border border-gray-600">
+                    <div class="w-4 h-4 rounded-full border-2 border-current mb-1"></div>
+                    <span>球体</span>
+                </button>
+                <button data-add="torus" class="add-primitive-btn bg-gray-700 hover:bg-indigo-600 text-white p-2 rounded-lg text-xs flex flex-col items-center justify-center transition duration-200 border border-gray-600">
+                    <div class="w-4 h-4 rounded-full border-2 border-current mb-1 transform scale-x-125"></div>
+                    <span>圆环</span>
+                </button>
+            </div>
+        </div>
+        <!-- Changed accept to * to fix mobile visibility issues with FBX files -->
+        <input type="file" id="file-input" accept="*" class="hidden">
+    </aside>
+
+    <!-- 右侧环境控制面板 - Updated to top-24 -->
+    <aside id="right-panel" class="glass-panel w-40 md:w-56 p-[6px] rounded-xl absolute top-24 right-4 z-10 custom-scrollbar self-start max-h-[calc(100vh-8rem)] overflow-y-auto panel-hidden-right">
+        <h2 class="text-lg font-bold mb-4 border-b border-indigo-500/50 pb-2 text-white pl-2">环境设置</h2>
+        <div class="space-y-4 mb-6 px-1">
+            <h3 class="font-bold text-lg text-indigo-400">场景/灯光</h3>
+            
+            <!-- Lighting Controls (NEW) -->
+            <div class="flex flex-col space-y-2 pb-2 border-b border-gray-700">
+                <div class="flex justify-between items-center">
+                    <label class="text-sm text-gray-300">灯光强度</label>
+                    <span id="light-intensity-value" class="text-xs font-mono text-indigo-300">1.0</span>
+                </div>
+                <input type="range" id="light-intensity-slider" min="0" max="3" step="0.1" value="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                
+                <button id="cycle-light-preset-btn" class="w-full py-1.5 rounded-lg bg-gray-700 hover:bg-indigo-600 text-white text-xs font-semibold transition flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <span id="light-preset-name">标准棚拍</span>
+                </button>
+            </div>
+
+            <!-- Auto Scale Toggle -->
+            <div class="flex justify-between items-center">
+                <label for="auto-scale-toggle" class="text-sm text-gray-300">导入时自动缩放</label>
+                <input type="checkbox" id="auto-scale-toggle" checked class="form-checkbox h-5 w-5 text-indigo-600 bg-gray-700 border-gray-600 rounded cursor-pointer">
+            </div>
+
+            <div class="flex justify-between items-center">
+                <label for="grid-helper-toggle" class="text-sm">显示网格</label>
+                <input type="checkbox" id="grid-helper-toggle" checked class="form-checkbox h-5 w-5 text-indigo-600 bg-gray-700 border-gray-600 rounded">
+            </div>
+            <div class="flex justify-between items-center">
+                <label for="ruler-toggle" class="text-sm">显示标尺</label>
+                <input type="checkbox" id="ruler-toggle" checked class="form-checkbox h-5 w-5 text-indigo-600 bg-gray-700 border-gray-600 rounded">
+            </div>
+            
+            <!-- NEW: Simplified Unit Conversion Setting -->
+            <div class="flex flex-col space-y-1">
+                <label class="text-sm text-gray-400">显示单位 (转换)</label>
+                <select id="unit-conversion-select" class="bg-gray-700 text-white text-xs rounded p-1 border border-gray-600">
+                    <!-- value format: factor,label -->
+                    <option value="1,cm">厘米 (cm)</option>
+                    <option value="0.01,m">米 (m)</option>
+                    <option value="10,mm">毫米 (mm)</option>
+                </select>
+            </div>
+        </div>
+        <h3 class="font-bold text-lg text-indigo-400 px-1">材质控制</h3>
+        <div class="space-y-4 pt-2 px-1">
+            <div>
+                <label class="text-sm flex justify-between mb-1">
+                    <span>粗糙度</span>
+                    <span id="roughness-value" class="font-mono text-indigo-300">0.50</span>
+                </label>
+                <input type="range" id="roughness-slider" min="0" max="1" step="0.01" value="0.5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div>
+                <label class="text-sm flex justify-between mb-1">
+                    <span>金属度</span>
+                    <span id="metalness-value" class="font-mono text-indigo-300">0.10</span>
+                </label>
+                <input type="range" id="metalness-slider" min="0" max="1" step="0.01" value="0.1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div>
+                <label class="text-sm flex justify-between mb-1">
+                    <span>光泽度</span>
+                    <span id="clearcoat-value" class="font-mono text-indigo-300">0.00</span>
+                </label>
+                <input type="range" id="clearcoat-slider" min="0" max="1" step="0.01" value="0.0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <!-- NEW: Texture Intensity Slider -->
+             <div>
+                <label class="text-sm flex justify-between mb-1">
+                    <span>贴图亮度</span>
+                    <span id="emissive-value" class="font-mono text-indigo-300">0.00</span>
+                </label>
+                <input type="range" id="emissive-slider" min="0" max="2" step="0.1" value="0.0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <div>
+                <label class="text-sm mb-1 block">模型颜色</label>
+                <div class="flex items-center space-x-2">
+                    <input type="color" id="color-picker" value="#ffffff" class="w-10 h-10 p-0.5 rounded-lg border-2 border-indigo-500 cursor-pointer bg-transparent">
+                    <button id="restore-color-btn" class="flex-grow p-2 rounded-lg bg-yellow-600 hover:bg-yellow-700 text-white font-semibold shadow-md transition duration-150 text-sm">
+                        恢复原色
+                    </button>
+                </div>
+            </div>
+            <!-- NEW: UV Checker Button -->
+             <button id="toggle-uv-btn" class="w-full mt-2 p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+                UV 棋盘格检测
+            </button>
+            <!-- Load Custom UV Texture (Fixed with click handler safety) -->
+            <button id="load-uv-btn" class="w-full mt-2 p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold shadow transition flex items-center justify-center active:scale-95 transition-transform" style="pointer-events: auto;">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                加载自定义贴图
+            </button>
+            <input type="file" id="uv-input" accept="image/*" class="hidden">
+            <!-- Reset Scale Button -->
+             <button id="reset-scale-btn" class="w-full mt-2 p-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold shadow transition">
+                重置模型状态
+            </button>
+        </div>
+    </aside>
+
+    <!-- NEW: Zoom Controls Container -->
+    <div id="zoom-controls" class="fixed bottom-24 right-4 z-40 flex flex-col space-y-2 pointer-events-auto">
+        <button id="zoom-in-btn" class="glass-panel p-3 rounded-full hover:bg-gray-700/80 text-white transition active:scale-95 shadow-lg flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+        </button>
+        <button id="zoom-out-btn" class="glass-panel p-3 rounded-full hover:bg-gray-700/80 text-white transition active:scale-95 shadow-lg flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- 底部变换控制器工具栏 -->
+    <!-- Updated: Added cursor-grab to the main container -->
+    <div id="transform-controls-bar" class="glass-panel fixed bottom-4 left-1/2 -translate-x-1/2 p-3 rounded-xl shadow-2xl flex items-center space-x-2 z-30 cursor-grab active:cursor-grabbing">
+        <div id="drag-handle" class="text-gray-400 hover:text-white px-2 pointer-events-none"> <!-- pointer-events-none to let the parent handle drag -->
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor">
+                <path fill-rule="evenodd" d="M11 19a1 1 0 102 0v-2a1 1 0 10-2 0v2zm0-7a1 1 0 102 0v-2a1 1 0 10-2 0v2zm0-7a1 1 0 102 0V3a1 1 0 10-2 0v2zM5 19a1 1 0 102 0v-2a1 1 0 10-2 0v2zm0-7a1 1 0 102 0v-2a1 1 0 10-2 0v2zm14 14a1 1 0 100-2v2a1 1 0 100-2zm0-7a1 1 0 100-2v2a1 1 0 100-2zm0-7a1 1 0 100-2zm0-7a1 1 0 100-2z" clip-rule="evenodd" />
+            </svg>
+        </div>
+        <div class="flex space-x-2 border-l border-indigo-500/50 pl-2">
+            <button data-mode="translate" class="transform-btn bg-gray-700 hover:bg-indigo-700 text-white p-2 rounded-lg transition duration-150">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l10-10M7 7h10v10"/></svg>
+            </button>
+            <button data-mode="rotate" class="transform-btn bg-gray-700 hover:bg-indigo-700 text-white p-2 rounded-lg transition duration-150">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2c-3.1 0-5.8 2.3-6.5 5.5l-5.6 5.6C8 16 7 17 7 17s-1-1-4.1-4.1l5.6-5.6C9.7 5.8 12.4 2 15.5 2h6zM15 17l-5.6-5.6M14 10l-4.1 4.1M16 19l-4.1-4.1M17 14l-4.1-4.1M19 16l-4.1-4.1M22 21l-5.6-5.6"/></svg>
+            </button>
+            <button data-mode="scale" class="transform-btn bg-gray-700 hover:bg-indigo-700 text-white p-2 rounded-lg transition duration-150">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V3h4M17 3h4v4M3 17v4h4M21 17v4h-4M10 12h4m-2-2v4"/></svg>
+            </button>
+        </div>
+        <div class="w-px h-6 bg-indigo-500/30 mx-2"></div>
+        
+        <!-- Play/Pause Button (Initially Hidden or Disabled, shown when anims present) -->
+        <button id="play-pause-btn" class="hidden bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-lg transition-all duration-300 group shadow-lg shadow-indigo-500/20 mr-2" title="播放/暂停动画">
+            <!-- Play Icon -->
+            <svg id="icon-play" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <!-- Pause Icon -->
+            <svg id="icon-pause" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </button>
+
+        <button id="auto-rotate-btn" class="bg-red-600 hover:bg-red-500 text-white p-2 rounded-lg transition-all duration-300 hover:scale-105 group shadow-lg shadow-red-500/20" title="自动旋转">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 group-hover:rotate-180 transition-transform duration-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+        </button>
+        <button id="toggle-ruler-btn" class="ml-2 bg-indigo-600 hover:bg-indigo-600 text-white p-2 rounded-lg transition-all duration-300 hover:scale-105 group shadow-lg shadow-indigo-500/20" title="显示/隐藏标尺">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16M4 6v12M20 6v12" /> 
+            </svg>
+        </button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+        
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+        import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+        import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+        import { TGALoader } from 'three/addons/loaders/TGALoader.js';
+        
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+        import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
+        import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+
+        let scene, camera, renderer, orbitControls, transformControls, gridHelper;
+        let objects = []; 
+        let activeModel = null; 
+        let raycaster, mouse; 
+        let objToDelete = null; 
+        let cameraStream = null; 
+        let rulerGroup = null; 
+        let isRulerEnabled = false; // Hidden in intro
+        let currentStatusInterval = null; 
+        let unitConversionFactor = 1.0; // Default 1.0 
+        let currentUnitLabel = 'cm'; // Default label
+        let checkerTexture = null;
+        
+        // Animation
+        let mixer = null;
+        let clock = new THREE.Clock();
+        let isPlaying = false;
+        
+        // Intro Flower
+        let introFlower = null;
+        let isIntroMode = true;
+
+        // Lights
+        let ambientLight, keyLight, fillLight;
+        let lightIntensityMultiplier = 1.0;
+        let currentLightPreset = 0; // 0: Studio, 1: Sunset, 2: Cyber, 3: Dark
+
+        // Update default material to Physical for Clearcoat support
+        const defaultMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xffffff,
+            roughness: 0.5,
+            metalness: 0.1,
+            clearcoat: 0.0,
+            clearcoatRoughness: 0.1
+        });
+
+        const container = document.getElementById('three-container');
+        const messageBox = document.getElementById('message-box');
+        
+        let originalMaterialData = new Map();
+        let currentRenderMode = 'local';
+        let currentCloudUrl = '';
+
+        // Helper: Create Procedural Flower based on image (Matching flower_final_merged.glb colors)
+        function createProceduralFlower() {
+            const flowerGroup = new THREE.Group();
+            
+            // Colors based on user uploaded image "flower_final_merged" lookalike
+            // 6 Petals: Blue, Yellow, Green, Red, Purple, Light Green
+            // Order clockwise starting from top-left blueish one
+            const colors = [
+                0x5B9BD5, // Blue
+                0xFFC000, // Yellow/Orange
+                0x70AD47, // Green
+                0xC00000, // Red
+                0x7030A0, // Purple
+                0xD0D050  // Light Yellow-Green
+            ];
+            
+            // Geometry for a petal (Capsule-like flattened sphere)
+            // Use CapsuleGeometry if available in this version, else stick to Sphere scaling
+            // Three r160 has CapsuleGeometry
+            const geometry = new THREE.CapsuleGeometry(0.6, 1.5, 4, 16);
+            // Flatten it
+            geometry.scale(1, 1, 0.2);
+            // Move pivot to bottom end
+            geometry.translate(0, 0.75 + 0.6, 0); 
+
+            for(let i=0; i<6; i++) {
+                const material = new THREE.MeshPhysicalMaterial({
+                    color: colors[i],
+                    roughness: 0.1,
+                    metalness: 0.0,
+                    clearcoat: 0.6, // High gloss like plastic/ceramic
+                    clearcoatRoughness: 0.1,
+                    side: THREE.DoubleSide
+                });
+                const petal = new THREE.Mesh(geometry, material);
+                
+                const angle = (i / 6) * Math.PI * 2;
+                
+                // Create a pivot wrapper
+                const pivot = new THREE.Group();
+                pivot.rotation.y = -angle; // Rotate around Up axis to distribute in circle
+                
+                // Tilt petal down to lie flat
+                petal.rotation.x = Math.PI / 2; 
+                
+                pivot.add(petal);
+                flowerGroup.add(pivot);
+            }
+
+            // Center (Yellow/Orange)
+            const centerGeo = new THREE.SphereGeometry(0.5, 32, 32);
+            centerGeo.scale(1, 0.4, 1); // Flatten
+            const centerMat = new THREE.MeshPhysicalMaterial({ 
+                color: 0xFFD700, 
+                roughness: 0.4, 
+                clearcoat: 0.3 
+            });
+            const centerMesh = new THREE.Mesh(centerGeo, centerMat);
+            centerMesh.position.y = 0.1; // Just above origin
+            flowerGroup.add(centerMesh);
+            
+            return flowerGroup;
+        }
+        
+        // Helper to animate procedural bloom
+        function animateProceduralBloom(flower, time) {
+             if(!flower) return;
+             // Animate scale/rotation based on time sin wave to simulate breathing/blooming
+             const scale = 1 + Math.sin(time * 2) * 0.05;
+             // flower.scale.setScalar(scale); // Optional breathing
+             // flower.rotation.y += 0.005; // Optional spinning
+        }
+
+        // Helper: Convert any material to Physical to support clearcoat
+        function convertToPhysicalMaterial(mesh) {
+            if (!mesh.material) return;
+            
+            const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            const newMaterials = materials.map(oldMat => {
+                // If already physical, just ensure it handles updates
+                if (oldMat.isMeshPhysicalMaterial) return oldMat;
+                
+                const newMat = new THREE.MeshPhysicalMaterial();
+                
+                // Copy properties
+                if (oldMat.color) newMat.color.copy(oldMat.color);
+                if (oldMat.map) newMat.map = oldMat.map;
+                if (oldMat.normalMap) newMat.normalMap = oldMat.normalMap;
+                if (oldMat.normalScale) newMat.normalScale.copy(oldMat.normalScale);
+                if (oldMat.emissive) newMat.emissive.copy(oldMat.emissive);
+                if (oldMat.emissiveMap) newMat.emissiveMap = oldMat.emissiveMap;
+                if (oldMat.emissiveIntensity) newMat.emissiveIntensity = oldMat.emissiveIntensity;
+                if (oldMat.alphaMap) newMat.alphaMap = oldMat.alphaMap;
+                if (oldMat.aoMap) newMat.aoMap = oldMat.aoMap;
+                if (oldMat.aoMapIntensity) newMat.aoMapIntensity = oldMat.aoMapIntensity;
+                
+                // Specific conversions
+                if (oldMat.roughness !== undefined) newMat.roughness = oldMat.roughness;
+                if (oldMat.metalness !== undefined) newMat.metalness = oldMat.metalness;
+                if (oldMat.roughnessMap) newMat.roughnessMap = oldMat.roughnessMap;
+                if (oldMat.metalnessMap) newMat.metalnessMap = oldMat.metalnessMap;
+                
+                // Shininess (Phong) to Roughness approx
+                if (oldMat.shininess !== undefined) {
+                    // Approximate conversion: higher shininess = lower roughness
+                    newMat.roughness = Math.max(0, 1.0 - (oldMat.shininess / 100.0));
+                }
+                
+                newMat.side = oldMat.side;
+                newMat.transparent = oldMat.transparent;
+                newMat.opacity = oldMat.opacity;
+                newMat.flatShading = oldMat.flatShading;
+                
+                return newMat;
+            });
+            
+            mesh.material = Array.isArray(mesh.material) ? newMaterials : newMaterials[0];
+        }
+
+        // Generate Checkerboard Texture for UV visualization
+        function createCheckerTexture() {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const context = canvas.getContext('2d');
+            
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, size, size);
+            
+            context.fillStyle = '#ccc';
+            const squares = 8;
+            const step = size / squares;
+            
+            for (let i = 0; i < squares; i++) {
+                for (let j = 0; j < squares; j++) {
+                    if ((i + j) % 2 === 0) {
+                        context.fillRect(i * step, j * step, step, step);
+                    }
+                }
+            }
+            // Draw grid numbers or lines for better UV check
+            context.strokeStyle = 'red';
+            context.lineWidth = 2;
+            context.strokeRect(0,0,size,size);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.magFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        // Utility functions
+        function showMessage(text, isError = false) {
+            if (currentStatusInterval) {
+                clearInterval(currentStatusInterval);
+                currentStatusInterval = null;
+            }
+
+            messageBox.innerText = text;
+            messageBox.className = `p-3 rounded-xl shadow-2xl text-sm font-medium transition-opacity duration-300 ${isError ? 'bg-red-600 text-white' : 'bg-indigo-600 text-white'} fixed top-4 left-1/2 -translate-x-1/2 z-[100] opacity-100 pointer-events-none`;
+            
+            if (!isError && text.includes("正在")) {
+                let dots = 1;
+                const baseText = text.replace(/\.+$/, '');
+                currentStatusInterval = setInterval(() => {
+                    dots = (dots % 3) + 1;
+                    messageBox.innerText = baseText + ".".repeat(dots);
+                }, 500);
+            }
+            
+            if (!currentStatusInterval) {
+                setTimeout(() => {
+                    messageBox.style.opacity = '0';
+                    messageBox.classList.remove('opacity-100');
+                }, 3000);
+            }
+        }
+
+        function clearMessage() {
+            if (currentStatusInterval) {
+                clearInterval(currentStatusInterval);
+                currentStatusInterval = null;
+            }
+            messageBox.style.opacity = '0';
+            messageBox.classList.remove('opacity-100');
+        }
+        
+        function getGPUInfo() {
+            if (!renderer) return "Unknown GPU";
+            const gl = renderer.getContext();
+            const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+            if (debugInfo) {
+                return gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            }
+            return "Standard GPU";
+        }
+
+        function updateGPUDisplay() {
+            const gpuName = getGPUInfo();
+            const displayElement = document.getElementById('gpu-name-display');
+            let simpleName = "GPU";
+            const matchNvidia = gpuName.match(/(RTX\s\d{3,4}|GTX\s\d{3,4}|T\d{3,4})/i);
+            const matchIntel = gpuName.match(/(Iris|UHD|HD)\sGraphics/i);
+            const matchApple = gpuName.match(/(Apple\sM\d\s(Pro|Max|Ultra)?|Apple GPU)/i);
+            const matchAmd = gpuName.match(/(Radeon\sRX\s\d{3,4})/i);
+
+            if (matchNvidia) {
+                simpleName = matchNvidia[0].toUpperCase(); 
+            } else if (matchApple) {
+                simpleName = matchApple[0]; 
+            } else if (matchAmd) {
+                simpleName = matchAmd[0];
+            } else if (matchIntel) {
+                simpleName = matchIntel[0];
+            } else {
+                const parts = gpuName.replace(/angle|\(|\)|nvidia|corporation|inc\.|direct3d11|vs_\d_\d|ps_\d_\d/gi, '').split(',');
+                if (parts.length > 0 && parts[0].trim().length > 0) {
+                      const words = parts[0].trim().split(' ');
+                      simpleName = words.slice(0, 2).join(' ');
+                }
+            }
+            if (displayElement) {
+                displayElement.textContent = simpleName;
+                displayElement.title = gpuName; 
+            }
+        }
+
+        function traverseMesh(object, callback) {
+            object.traverse((child) => {
+                if (child.isMesh) callback(child);
+            });
+        }
+
+        window.toggleUI = function() {
+            const left = document.getElementById('left-panel');
+            const right = document.getElementById('right-panel');
+            const openIcon = document.getElementById('icon-eye-open');
+            const closedIcon = document.getElementById('icon-eye-closed');
+            const isHidden = left.classList.contains('panel-hidden-left');
+            if (isHidden) {
+                left.classList.remove('panel-hidden-left');
+                right.classList.remove('panel-hidden-right');
+                openIcon.classList.remove('hidden');
+                closedIcon.classList.add('hidden');
+            } else {
+                left.classList.add('panel-hidden-left');
+                right.classList.add('panel-hidden-right');
+                openIcon.classList.add('hidden');
+                closedIcon.classList.remove('hidden');
+            }
+        }
+
+        // UI Fading Logic
+        function fadePanels(shouldFade) {
+            const panels = document.querySelectorAll('.glass-panel:not(#transform-controls-bar)');
+            panels.forEach(panel => {
+                if (shouldFade) panel.classList.add('panel-faded');
+                else panel.classList.remove('panel-faded');
+            });
+        }
+
+        function createTextSprite(message) {
+            const fontface = "Inter";
+            const fontsize = 56; 
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 512; 
+            canvas.height = 256; 
+            context.font = "Bold " + fontsize + "px " + fontface;
+            context.fillStyle = "rgba(255, 255, 255, 1.0)";
+            context.textAlign = "center";
+            context.textBaseline = "middle";
+            context.shadowColor = "rgba(0, 0, 0, 0.8)";
+            context.shadowBlur = 6;
+            context.shadowOffsetX = 3;
+            context.shadowOffsetY = 3;
+            context.fillText(message, canvas.width / 2, canvas.height / 2);
+            const texture = new THREE.CanvasTexture(canvas); 
+            texture.minFilter = THREE.LinearFilter;
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false }); 
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(3, 1.5, 1); 
+            return sprite;
+        }
+
+        function createRuler() {
+            if (!activeModel) return;
+            if (rulerGroup) {
+                scene.remove(rulerGroup);
+                rulerGroup = null;
+            }
+            if (!isRulerEnabled) return;
+
+            rulerGroup = new THREE.Group();
+            
+            // UPDATED: Accurately calculate bounding box for ONLY visible meshes
+            const box = new THREE.Box3();
+            let hasMesh = false;
+            activeModel.traverse((child) => {
+                if (child.isMesh && child.visible) {
+                      if(child.geometry) {
+                           box.expandByObject(child);
+                           hasMesh = true;
+                      }
+                }
+            });
+            
+            if (!hasMesh) {
+                box.setFromObject(activeModel);
+            }
+
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const min = box.min;
+            const max = box.max;
+            
+            // UPDATED: Calculate real size using stored scale factor AND unit conversion factor
+            const autoScale = activeModel.userData.autoScaleFactor || 1.0;
+            
+            const offset = 0.8; 
+            const lineColor = 0xdc2626; // Red 600
+            const material = new THREE.LineBasicMaterial({ color: lineColor, depthTest: false });
+            
+            const drawAxisRuler = (start, end, axis, labelPrefix, visualSize) => {
+                const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+                const line = new THREE.Line(geometry, material);
+                rulerGroup.add(line);
+                
+                // UPDATED: Apply unit conversion
+                const realSize = (visualSize / autoScale) * unitConversionFactor;
+                
+                const dist = start.distanceTo(end);
+                const step = 1.0; 
+                const tickSize = 0.3;
+                const count = Math.floor(dist / step);
+                let tickDir = new THREE.Vector3();
+                if (axis === 'y') tickDir.set(1, 0, 0); 
+                else if (axis === 'x') tickDir.set(0, 1, 0); 
+                else tickDir.set(0, 1, 0); 
+                const lineDir = new THREE.Vector3().subVectors(end, start).normalize();
+                
+                for (let i = 0; i <= count; i++) {
+                    const p = new THREE.Vector3().copy(start).add(lineDir.clone().multiplyScalar(i * step));
+                    const pEnd = new THREE.Vector3().copy(p).add(tickDir.clone().multiplyScalar(tickSize));
+                    const tickGeo = new THREE.BufferGeometry().setFromPoints([p, pEnd]);
+                    rulerGroup.add(new THREE.Line(tickGeo, material));
+                    if (i % 2 === 0 && i > 0 && i < count) {
+                        // Calculate real value for tick label
+                        const val = ((i * step) / autoScale * unitConversionFactor).toFixed(0);
+                        const sprite = createTextSprite(val);
+                        const labelPos = pEnd.clone().add(tickDir.clone().multiplyScalar(0.4));
+                        sprite.position.copy(labelPos);
+                        sprite.scale.set(0.8, 0.4, 1);
+                        rulerGroup.add(sprite);
+                    }
+                }
+                const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                const mainLabelPos = mid.add(tickDir.clone().multiplyScalar(0.8));
+                // UPDATED: Display REAL size with dynamic unit label
+                const mainLabel = createTextSprite(`${labelPrefix}: ${realSize.toFixed(2)} ${currentUnitLabel}`);
+                mainLabel.position.copy(mainLabelPos);
+                mainLabel.scale.set(2, 1, 1);
+                rulerGroup.add(mainLabel);
+            };
+
+            const hStart = new THREE.Vector3(max.x + offset, min.y, max.z + offset);
+            const hEnd = new THREE.Vector3(max.x + offset, max.y, max.z + offset);
+            drawAxisRuler(hStart, hEnd, 'y', 'H', size.y);
+
+            const wStart = new THREE.Vector3(min.x, min.y, max.z + offset);
+            const wEnd = new THREE.Vector3(max.x, min.y, max.z + offset);
+            drawAxisRuler(wStart, wEnd, 'x', 'W', size.x);
+
+            const dStart = new THREE.Vector3(max.x + offset, min.y, min.z);
+            const dEnd = new THREE.Vector3(max.x + offset, min.y, max.z);
+            drawAxisRuler(dStart, dEnd, 'z', 'D', size.z);
+
+            rulerGroup.renderOrder = 999;
+            scene.add(rulerGroup);
+        }
+
+        function updateRuler() {
+            if (isRulerEnabled && activeModel) {
+                createRuler(); 
+            } else if (rulerGroup) {
+                scene.remove(rulerGroup);
+                rulerGroup = null;
+            }
+        }
+
+        function storeOriginalMaterial(mesh) {
+             const material = mesh.material;
+             if (!material) return;
+             const materials = Array.isArray(material) ? material : [material];
+             materials.forEach((mat, index) => {
+                 // Check if it's a valid material object (basic check)
+                 if (mat && mat.isMaterial) {
+                     const key = `${mesh.uuid}_${index}`;
+                     originalMaterialData.set(key, {
+                         color: mat.color ? mat.color.getHex() : 0xffffff,
+                         roughness: mat.roughness,
+                         metalness: mat.metalness,
+                         clearcoat: mat.clearcoat || 0, // Save clearcoat
+                         // Save emissive properties
+                         emissive: mat.emissive ? mat.emissive.clone() : new THREE.Color(0x000000),
+                         emissiveMap: mat.emissiveMap,
+                         emissiveIntensity: mat.emissiveIntensity !== undefined ? mat.emissiveIntensity : 1,
+                         originalMaterialClone: mat.clone(),
+                         originalMap: mat.map // Store original map
+                     });
+                 }
+             });
+        }
+
+        function applyMaterialProperties(props) {
+            if (!activeModel) return;
+            traverseMesh(activeModel, (mesh) => {
+                const material = mesh.material;
+                if (!material) return;
+                const materials = Array.isArray(material) ? material : [material];
+                materials.forEach(mat => {
+                    // Apply to any material that has these properties
+                    if (mat) {
+                        if (props.color !== undefined && mat.color) mat.color.set(props.color);
+                        if (props.roughness !== undefined && mat.roughness !== undefined) mat.roughness = props.roughness;
+                        if (props.metalness !== undefined && mat.metalness !== undefined) mat.metalness = props.metalness;
+                        if (props.clearcoat !== undefined && mat.clearcoat !== undefined) mat.clearcoat = props.clearcoat;
+                        // NEW: Apply emissive intensity
+                        if (props.emissiveIntensity !== undefined && mat.emissiveIntensity !== undefined) mat.emissiveIntensity = props.emissiveIntensity;
+                        mat.needsUpdate = true;
+                    }
+                });
+            });
+            if (props.color !== undefined) {
+                 const el = document.getElementById('color-picker');
+                 if(el) el.value = `#${new THREE.Color(props.color).getHexString()}`;
+            }
+            if (props.roughness !== undefined) {
+                const el = document.getElementById('roughness-slider');
+                const val = document.getElementById('roughness-value');
+                if(el) el.value = props.roughness;
+                if(val) val.textContent = props.roughness.toFixed(2);
+            }
+            if (props.metalness !== undefined) {
+                const el = document.getElementById('metalness-slider');
+                const val = document.getElementById('metalness-value');
+                if(el) el.value = props.metalness;
+                if(val) val.textContent = props.metalness.toFixed(2);
+            }
+            if (props.clearcoat !== undefined) {
+                const el = document.getElementById('clearcoat-slider');
+                const val = document.getElementById('clearcoat-value');
+                if(el) el.value = props.clearcoat;
+                if(val) val.textContent = props.clearcoat.toFixed(2);
+            }
+             // NEW: Update UI for emissive
+            if (props.emissiveIntensity !== undefined) {
+                const el = document.getElementById('emissive-slider');
+                const val = document.getElementById('emissive-value');
+                if(el) el.value = props.emissiveIntensity;
+                if(val) val.textContent = props.emissiveIntensity.toFixed(2);
+            }
+            renderer.render(scene, camera);
+        }
+        
+        // NEW: UV Toggle Logic
+        function toggleUVGrid() {
+            if (!activeModel) {
+                showMessage("请先选择一个模型", true);
+                return;
+            }
+            
+            if (!checkerTexture) checkerTexture = createCheckerTexture();
+            
+            let isShowingUV = activeModel.userData.isUVShowing || false;
+            activeModel.userData.isUVShowing = !isShowingUV;
+            
+            const showUV = activeModel.userData.isUVShowing;
+            
+            traverseMesh(activeModel, (mesh) => {
+                 const material = mesh.material;
+                 if (!material) return;
+                 const materials = Array.isArray(material) ? material : [material];
+                 materials.forEach((mat, index) => {
+                     // Check if material supports maps
+                     if (mat) {
+                         const key = `${mesh.uuid}_${index}`;
+                         let data = originalMaterialData.get(key);
+                         
+                         // If data missing (shouldn't happen if traverse called on load), create it
+                         if(!data) {
+                             storeOriginalMaterial(mesh);
+                             data = originalMaterialData.get(key);
+                         }
+
+                         if (showUV) {
+                             mat.map = checkerTexture;
+                             if(mat.color) mat.color.set(0xffffff); // Set to white to see texture clearly
+                         } else {
+                             mat.map = data ? data.originalMap : null;
+                             if(mat.color && data) mat.color.set(data.color); // Restore color
+                         }
+                         mat.needsUpdate = true;
+                     }
+                 });
+            });
+            
+            if(showUV) showMessage("已应用 UV 棋盘格");
+            else showMessage("已恢复原始材质");
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle Custom UV Upload
+        function handleUVUpload(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+            if (!activeModel) {
+                showMessage("请先选择一个模型", true);
+                return;
+            }
+            
+            const url = URL.createObjectURL(file);
+            const loader = new THREE.TextureLoader();
+            
+            showMessage("正在加载贴图...");
+            
+            loader.load(url, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                // texture.flipY = false; // Keep default (true) for user uploaded images usually works best for OBJs etc.
+                
+                traverseMesh(activeModel, (mesh) => {
+                     const material = mesh.material;
+                     if (!material) return;
+                     const materials = Array.isArray(material) ? material : [material];
+                     materials.forEach((mat, index) => {
+                         if (mat) {
+                             // Backup original if needed
+                             const key = `${mesh.uuid}_${index}`;
+                             if(!originalMaterialData.has(key)) {
+                                 storeOriginalMaterial(mesh);
+                             }
+                             
+                             mat.map = texture;
+                             // Also set as emissive map for "brightness" control
+                             mat.emissiveMap = texture;
+                             mat.emissive.setHex(0xffffff);
+                             mat.emissiveIntensity = 0.5; // Default to some brightness to be obvious
+
+                             if(mat.color) mat.color.set(0xffffff); // Ensure texture is visible
+                             
+                             // NEW: Reset material properties to make texture distinct
+                             if(mat.metalness !== undefined) mat.metalness = 0.0;
+                             if(mat.roughness !== undefined) mat.roughness = 0.5;
+                             if(mat.clearcoat !== undefined) mat.clearcoat = 0.0;
+                             
+                             mat.needsUpdate = true;
+                         }
+                     });
+                });
+                
+                // Turn off UV checker flag so toggling it back on works as expected
+                activeModel.userData.isUVShowing = false;
+                
+                const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+                const setText = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+
+                setVal('metalness-slider', 0);
+                setText('metalness-value', "0.00");
+                setVal('roughness-slider', 0.5);
+                setText('roughness-value', "0.50");
+                setVal('clearcoat-slider', 0);
+                setText('clearcoat-value', "0.00");
+                // Set new Emissive Slider
+                setVal('emissive-slider', 0.5);
+                setText('emissive-value', "0.50");
+                setVal('color-picker', "#ffffff");
+                
+                showMessage(`已应用贴图: ${file.name}`);
+                renderer.render(scene, camera);
+                URL.revokeObjectURL(url);
+            }, undefined, (err) => {
+                console.error(err);
+                showMessage("贴图加载失败", true);
+            });
+            event.target.value = null; // Reset input
+        }
+
+        function restoreOriginalMaterial() {
+            if (!activeModel) return;
+            traverseMesh(activeModel, (mesh) => {
+                const material = mesh.material;
+                if(!material) return;
+                const materials = Array.isArray(material) ? material : [material];
+                materials.forEach((mat, index) => {
+                    if (mat) {
+                        const key = `${mesh.uuid}_${index}`;
+                        const original = originalMaterialData.get(key);
+                        if (original && original.originalMaterialClone) {
+                            const newMat = original.originalMaterialClone.clone();
+                            if (Array.isArray(mesh.material)) mesh.material[index] = newMat;
+                            else mesh.material = newMat;
+                        }
+                    }
+                });
+            });
+            activeModel.userData.isUVShowing = false; // Reset UV state
+            
+            // Reset UI sliders to defaults
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+            const setText = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+            
+            setVal('metalness-slider', 0.1);
+            setText('metalness-value', "0.10");
+            setVal('roughness-slider', 0.5);
+            setText('roughness-value', "0.50");
+            setVal('clearcoat-slider', 0.0);
+            setText('clearcoat-value', "0.00");
+            setVal('emissive-slider', 0.0);
+            setText('emissive-value', "0.00");
+            setVal('color-picker', "#ffffff");
+
+            // Force update current active material ref for UI logic if needed
+            // setActiveObject(activeModel); // Recursive call risk, avoid here
+        }
+
+        // FIXED: Toggleable Reset/Undo Logic
+        function resetModelScale() {
+             if(!activeModel) return;
+
+             const btn = document.getElementById('reset-scale-btn');
+             
+             // Check if we are in "Reset" state (meaning we need to undo)
+             if (activeModel.userData.isReset) {
+                 // --- UNDO / CANCEL RESET ---
+                 
+                 const state = activeModel.userData.preResetState;
+                 if (state) {
+                     // 1. Restore Transform
+                     activeModel.position.copy(state.transform.position);
+                     activeModel.rotation.copy(state.transform.rotation);
+                     activeModel.scale.copy(state.transform.scale);
+                     
+                     // 2. Restore Materials
+                     if (state.materials) {
+                         activeModel.traverse((child) => {
+                             if (child.isMesh && state.materials[child.uuid]) {
+                                 child.material = state.materials[child.uuid];
+                             }
+                         });
+                     }
+                     
+                     // 3. Restore UI values from the restored material (pick first mesh)
+                     let firstMat = null;
+                     activeModel.traverse(c => { if (!firstMat && c.isMesh) firstMat = c.material; });
+                     if (firstMat) {
+                          const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+                          const setText = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+                          
+                          if(firstMat.roughness !== undefined) { setVal('roughness-slider', firstMat.roughness); setText('roughness-value', firstMat.roughness.toFixed(2)); }
+                          if(firstMat.metalness !== undefined) { setVal('metalness-slider', firstMat.metalness); setText('metalness-value', firstMat.metalness.toFixed(2)); }
+                          if(firstMat.clearcoat !== undefined) { setVal('clearcoat-slider', firstMat.clearcoat); setText('clearcoat-value', firstMat.clearcoat.toFixed(2)); }
+                          if(firstMat.emissiveIntensity !== undefined) { setVal('emissive-slider', firstMat.emissiveIntensity); setText('emissive-value', firstMat.emissiveIntensity.toFixed(2)); }
+                          if(firstMat.color) { setVal('color-picker', '#' + firstMat.color.getHexString()); }
+                     }
+                 }
+                 
+                 activeModel.userData.isReset = false;
+                 btn.textContent = "重置模型状态";
+                 btn.classList.remove("bg-red-600", "hover:bg-red-500");
+                 btn.classList.add("bg-gray-700", "hover:bg-gray-600");
+                 showMessage("已取消重置，恢复原状");
+
+             } else {
+                 // --- PERFORM RESET ---
+                 
+                 // 1. Save State
+                 const state = {
+                     transform: {
+                         position: activeModel.position.clone(),
+                         rotation: activeModel.rotation.clone(),
+                         scale: activeModel.scale.clone()
+                     },
+                     materials: {}
+                 };
+                 
+                 activeModel.traverse((child) => {
+                     if (child.isMesh) {
+                         // Save reference to current material instance
+                         state.materials[child.uuid] = child.material; 
+                     }
+                 });
+                 
+                 activeModel.userData.preResetState = state;
+
+                 // 2. Reset Scale
+                 const initialScale = activeModel.userData.initialScale || 1.0;
+                 activeModel.scale.setScalar(initialScale);
+
+                 // 3. Reset Rotation
+                 activeModel.rotation.set(0, 0, 0);
+
+                 // 4. Reset Position
+                 const box = new THREE.Box3().setFromObject(activeModel);
+                 const center = box.getCenter(new THREE.Vector3());
+                 activeModel.position.sub(center);
+                 
+                 activeModel.updateMatrixWorld(true);
+                 const newBox = new THREE.Box3().setFromObject(activeModel);
+                 if (!activeModel.name.includes("Welcome")) {
+                      activeModel.position.y -= newBox.min.y;
+                 } else {
+                     // Special for welcome flower
+                     activeModel.position.z -= 1.5;
+                 }
+
+                 // 5. Restore Material Defaults
+                 restoreOriginalMaterial();
+
+                 // 6. Reset Camera
+                 if (activeModel.name.includes("Welcome")) {
+                       camera.position.set(0, 7, 0);
+                       camera.lookAt(0, 0, 0);
+                       if(orbitControls) orbitControls.target.set(0,0,0);
+                 } else {
+                       fitCameraToObject(activeModel);
+                 }
+
+                 activeModel.userData.isReset = true;
+                 btn.textContent = "取消重置";
+                 btn.classList.remove("bg-gray-700", "hover:bg-gray-600");
+                 btn.classList.add("bg-red-600", "hover:bg-red-500");
+                 showMessage("模型状态已重置");
+             }
+             
+             updateRuler();
+             renderer.render(scene, camera);
+        }
+        
+        // NEW: Fit Camera to Object Logic
+        function fitCameraToObject(object, offset = 1.6) { // Increased offset from 1.3 to 1.6 for more space
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            
+            let cameraZ = Math.abs(maxDim / (2 * Math.tan(fov / 2)));
+            
+            if (camera.aspect < 1) {
+                 cameraZ = cameraZ / camera.aspect;
+            }
+            
+            cameraZ *= offset;
+
+            const direction = new THREE.Vector3().subVectors(camera.position, center).normalize();
+            const position = direction.multiplyScalar(cameraZ).add(center);
+            
+            camera.position.copy(position);
+            
+            // Shift visual center up to avoid bottom toolbar obstruction
+            // We do this by lowering the target point that the camera looks at
+            // This pushes the object "up" in the screen
+            const shiftY = maxDim * 0.3; // Shift target down by 30% of size
+            const target = center.clone().sub(new THREE.Vector3(0, shiftY, 0));
+            
+            camera.lookAt(target);
+            
+            if (orbitControls) {
+                orbitControls.target.copy(target);
+                orbitControls.update();
+            }
+            renderer.render(scene, camera);
+        }
+
+        function updateSceneListUI() {
+            const listContainer = document.getElementById('scene-list-container');
+            listContainer.innerHTML = '';
+            if (objects.length === 0) {
+                listContainer.innerHTML = '<div class="text-center text-gray-500 text-sm py-4 italic">场景为空</div>';
+                return;
+            }
+            objects.forEach((obj, index) => {
+                const isActive = (obj === activeModel);
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `flex items-center justify-between p-2 rounded-lg cursor-pointer transition duration-150 group ${isActive ? 'active-model-item bg-red-500/20' : 'hover:bg-gray-700/50'}`;
+                const nameSpan = document.createElement('span');
+                nameSpan.className = `text-sm truncate flex-grow mr-2 ${isActive ? 'text-white font-bold' : 'text-gray-300'} ${obj.visible ? '' : 'opacity-50'}`;
+                nameSpan.textContent = obj.name || `Model ${index + 1}`;
+                nameSpan.onclick = () => setActiveObject(obj); 
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity'; 
+                const visibilityBtn = document.createElement('button');
+                visibilityBtn.className = 'text-gray-400 hover:text-white p-1 rounded hover:bg-gray-600/50 transition';
+                visibilityBtn.title = obj.visible ? '隐藏' : '显示';
+                const eyeOpenIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+                const eyeClosedIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>';
+                visibilityBtn.innerHTML = obj.visible ? eyeOpenIcon : eyeClosedIcon;
+                visibilityBtn.onclick = (e) => {
+                    e.stopPropagation(); 
+                    obj.visible = !obj.visible;
+                    if (activeModel === obj && !obj.visible) {
+                         transformControls.detach(); 
+                    } else if (activeModel === obj && obj.visible) {
+                         transformControls.attach(obj);
+                    }
+                    updateSceneListUI(); 
+                    updateRuler(); 
+                    renderer.render(scene, camera);
+                };
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'text-gray-400 hover:text-red-400 p-1 rounded hover:bg-red-500/10 transition';
+                deleteBtn.title = '删除';
+                deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    confirmDeleteObject(obj);
+                };
+                actionsDiv.appendChild(visibilityBtn);
+                actionsDiv.appendChild(deleteBtn);
+                itemDiv.appendChild(nameSpan);
+                itemDiv.appendChild(actionsDiv);
+                listContainer.appendChild(itemDiv);
+            });
+        }
+
+        function setActiveObject(obj) {
+            activeModel = obj;
+            
+            const activeToolBtn = document.querySelector('.transform-btn.active');
+            if (activeToolBtn) {
+                transformControls.attach(obj);
+            } else {
+                transformControls.detach();
+            }
+
+            // Animation controls visibility
+            const playBtn = document.getElementById('play-pause-btn');
+            if (playBtn) {
+                // Check if model has animations (stored in userData during load)
+                if (obj && obj.userData.animations && obj.userData.animations.length > 0) {
+                    playBtn.classList.remove('hidden');
+                } else {
+                    playBtn.classList.add('hidden');
+                }
+            }
+            
+            // Sync Reset Button State
+            const btn = document.getElementById('reset-scale-btn');
+            if (btn) {
+                if (obj.userData.isReset) {
+                    btn.textContent = "取消重置";
+                    btn.classList.remove("bg-gray-700", "hover:bg-gray-600");
+                    btn.classList.add("bg-red-600", "hover:bg-red-500");
+                } else {
+                    btn.textContent = "重置模型状态";
+                    btn.classList.remove("bg-red-600", "hover:bg-red-500");
+                    btn.classList.add("bg-gray-700", "hover:bg-gray-600");
+                }
+            }
+
+            updateSceneListUI();
+            updateRuler(); 
+            let foundMat = false;
+            obj.traverse((child) => {
+                if (!foundMat && child.isMesh && child.material) {
+                    const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+                    if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
+                        document.getElementById('roughness-slider').value = mat.roughness;
+                        document.getElementById('metalness-slider').value = mat.metalness;
+                        document.getElementById('color-picker').value = '#' + mat.color.getHexString();
+                        document.getElementById('roughness-value').textContent = mat.roughness.toFixed(2);
+                        document.getElementById('metalness-value').textContent = mat.metalness.toFixed(2);
+                        
+                        // Handle Clearcoat
+                        if(mat.clearcoat !== undefined) {
+                            document.getElementById('clearcoat-slider').value = mat.clearcoat;
+                            document.getElementById('clearcoat-value').textContent = mat.clearcoat.toFixed(2);
+                        } else {
+                            // Fallback
+                            document.getElementById('clearcoat-slider').value = 0;
+                            document.getElementById('clearcoat-value').textContent = "0.00";
+                        }
+                        
+                        // Handle Emissive (Texture Intensity)
+                        if(mat.emissiveIntensity !== undefined) {
+                            document.getElementById('emissive-slider').value = mat.emissiveIntensity;
+                            document.getElementById('emissive-value').textContent = mat.emissiveIntensity.toFixed(2);
+                        } else {
+                            document.getElementById('emissive-slider').value = 0;
+                            document.getElementById('emissive-value').textContent = "0.00";
+                        }
+                        
+                        foundMat = true;
+                    }
+                }
+            });
+        }
+
+        function deleteObject(obj) {
+            if (!obj) return;
+            
+            // Stop animation if this object was playing
+            if (activeModel === obj && mixer) {
+                mixer.stopAllAction();
+                mixer = null;
+                isPlaying = false;
+                document.getElementById('icon-play').classList.remove('hidden');
+                document.getElementById('icon-pause').classList.add('hidden');
+            }
+
+            scene.remove(obj);
+            objects = objects.filter(o => o !== obj);
+            if (activeModel === obj) {
+                transformControls.detach();
+                activeModel = null;
+                updateRuler(); 
+                document.getElementById('play-pause-btn').classList.add('hidden');
+            }
+            updateSceneListUI();
+            renderer.render(scene, camera);
+            showMessage("模型已删除");
+        }
+
+        function confirmDeleteObject(obj) {
+            objToDelete = obj;
+            document.getElementById('delete-model-name').textContent = `您确定要删除 ${obj.name || '此模型'} 吗？此操作无法撤销。`;
+            document.getElementById('delete-confirm-modal').classList.remove('hidden');
+        }
+
+        function loadDefaultModel() {
+            const defaultModelName = 'flower_final_merged.glb';
+            
+            // In this sandboxed environment, direct relative paths to external assets cause errors.
+            // We strictly use the procedural fallback which mimics the requested flower.
+            
+            console.log("Loading procedural fallback for demo environment.");
+            introFlower = createProceduralFlower();
+            introFlower.name = "Welcome Flower (Procedural)";
+            introFlower.position.y = 0; 
+            scene.add(introFlower);
+            objects.push(introFlower);
+            activeModel = introFlower;
+            setActiveObject(introFlower);
+            updateSceneListUI();
+        }
+
+        // Modified loadModel to handle animations and setup
+        function loadModel(modelData, animations = []) {
+            let newModel;
+            let modelName = 'Unknown';
+            
+            // Check the auto-scale toggle
+            const autoScaleToggle = document.getElementById('auto-scale-toggle');
+            const shouldAutoScale = autoScaleToggle ? autoScaleToggle.checked : true;
+
+            if (typeof modelData === 'string') {
+                 // ... (primitive loading code remains same)
+                 let geo;
+                if (modelData === 'cube') geo = new THREE.BoxGeometry(3, 3, 3);
+                else if (modelData === 'sphere') geo = new THREE.SphereGeometry(1.5, 32, 32);
+                else geo = new THREE.TorusKnotGeometry(1.5, 0.5, 100, 16);
+                
+                newModel = new THREE.Mesh(geo, defaultMaterial.clone());
+                newModel.position.set(0, 0, 0); 
+                
+                newModel.userData.autoScaleFactor = 1; 
+                newModel.userData.initialScale = 1; // Save initial
+
+                const count = objects.filter(o => o.name && o.name.includes(modelData)).length + 1;
+                newModel.name = `${modelData}_${count}`;
+                modelName = newModel.name;
+            } else if (modelData instanceof THREE.Object3D) {
+                newModel = modelData;
+                modelName = newModel.name || "Imported Model";
+                
+                const box = new THREE.Box3();
+                let hasMesh = false;
+                newModel.traverse((child) => {
+                    if (child.isMesh) {
+                        box.expandByObject(child);
+                        hasMesh = true;
+                    }
+                });
+                if (!hasMesh) box.setFromObject(newModel);
+                
+                const sizeVec = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z);
+                
+                let scale = 1;
+                if (shouldAutoScale && maxDim > 0) {
+                      scale = 5 / maxDim;
+                      newModel.scale.set(scale, scale, scale);
+                }
+                
+                newModel.userData.autoScaleFactor = scale; // Factor for Ruler
+                newModel.userData.initialScale = scale;   // Saved state for Reset
+            }
+            
+            if (newModel) {
+                // Only add if not already in scene (GLTFLoader.load calls this)
+                if (!newModel.parent) scene.add(newModel);
+                if (!objects.includes(newModel)) objects.push(newModel);
+                
+                // --- NEW ALIGNMENT LOGIC ---
+                newModel.updateMatrixWorld(true);
+                const box = new THREE.Box3().setFromObject(newModel);
+                const center = box.getCenter(new THREE.Vector3());
+                
+                // Use isIntroMode to decide view logic
+                if (isIntroMode && modelName.includes("Welcome")) {
+                    // Intro flower logic - just center
+                     newModel.position.x += (0 - center.x);
+                     newModel.position.y += (0 - box.min.y); 
+                     newModel.position.z += (0 - center.z);
+                } else {
+                     // Standard model logic - align bottom to 0
+                     newModel.position.x += (0 - center.x);
+                     newModel.position.y += (0 - box.min.y); 
+                     newModel.position.z += (0 - center.z);
+                }
+
+                // Convert Materials to Physical
+                newModel.traverse((child) => {
+                    if(child.isMesh) {
+                        convertToPhysicalMaterial(child);
+                        storeOriginalMaterial(child);
+                    }
+                });
+                
+                // Setup Animations
+                const foundAnimations = animations.length > 0 ? animations : (newModel.animations || []);
+                newModel.userData.animations = foundAnimations;
+                
+                if (foundAnimations.length > 0) {
+                    // Stop existing mixer if any
+                    if (mixer) mixer.stopAllAction();
+                    
+                    mixer = new THREE.AnimationMixer(newModel);
+                    const action = mixer.clipAction(foundAnimations[0]);
+                    action.play();
+                    isPlaying = true;
+                    const playBtn = document.getElementById('play-pause-btn');
+                    playBtn.classList.remove('hidden');
+                    document.getElementById('icon-play').classList.add('hidden');
+                    document.getElementById('icon-pause').classList.remove('hidden');
+                    showMessage(`已加载动画: ${foundAnimations.length} 个片段`);
+                } else {
+                     const playBtn = document.getElementById('play-pause-btn');
+                     if(playBtn) playBtn.classList.add('hidden');
+                }
+
+                setActiveObject(newModel);
+                
+                if (isIntroMode && modelName.includes("Welcome")) {
+                     // Special case for intro: Top Down View
+                     // CHANGED: Moved camera closer (from 12 to 7) to make flower appear larger
+                     camera.position.set(0, 7, 0);
+                     camera.lookAt(0,0,0);
+                     
+                     // Also shift intro flower up slightly so it doesn't look covered by "Enter" button
+                     newModel.position.z -= 1.5; // Shift "up" in screen space for top-down
+                } else {
+                     fitCameraToObject(newModel);
+                }
+                
+                clearMessage(); 
+                if (modelName !== 'Welcome Flower') showMessage(`已加载: ${modelName}`);
+            }
+        }
+        
+        async function startCamera() {
+            const video = document.getElementById('scan-video');
+            const loading = document.getElementById('scan-loading');
+            const status = document.getElementById('scan-status');
+            const loadingText = document.getElementById('scan-loading-text');
+            const fallbackBg = document.getElementById('scan-fallback-bg');
+            fallbackBg.classList.add('hidden');
+            video.classList.add('opacity-0');
+            loading.classList.remove('hidden');
+            loading.classList.remove('opacity-0');
+            loadingText.innerText = "INITIALIZING CAMERA...";
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.warn("getUserMedia not supported");
+                startSimulationMode("API unavailable");
+                return;
+            }
+            try {
+                status.innerText = "Requesting Access...";
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                cameraStream = stream;
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    video.classList.remove('opacity-0');
+                    loading.classList.add('hidden');
+                    status.innerText = "Active";
+                    status.className = "text-emerald-400";
+                };
+            } catch (err) {
+                console.error("Camera Error:", err);
+                startSimulationMode(err.message);
+            }
+        }
+
+        function startSimulationMode(reason) {
+            const loadingText = document.getElementById('scan-loading-text');
+            const status = document.getElementById('scan-status');
+            const fallbackBg = document.getElementById('scan-fallback-bg');
+            const loading = document.getElementById('scan-loading');
+            status.innerText = "Simulation Mode";
+            status.className = "text-yellow-400";
+            fallbackBg.classList.remove('hidden');
+            loadingText.innerText = "CAMERA UNAVAILABLE. SWITCHING TO SIMULATION...";
+            setTimeout(() => {
+                loading.classList.add('opacity-0');
+            }, 1500);
+            showMessage(`摄像头不可用 (${reason})，已切换至演示模式。`, false);
+        }
+
+        function stopCamera() {
+            const video = document.getElementById('scan-video');
+            const loading = document.getElementById('scan-loading');
+            const status = document.getElementById('scan-status');
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            if (video) {
+                video.srcObject = null;
+                video.classList.add('opacity-0');
+            }
+            if (loading) loading.classList.remove('hidden');
+            if (status) {
+                status.innerText = "Standby";
+                status.className = "text-yellow-400";
+            }
+        }
+
+        function showCloudModal() { document.getElementById('cloud-render-modal').classList.remove('hidden'); }
+        function closeCloudModal() { document.getElementById('cloud-render-modal').classList.add('hidden'); }
+        
+        function setupModals() {
+            document.getElementById('modal-cancel-btn').addEventListener('click', closeCloudModal);
+            document.getElementById('modal-local-btn').addEventListener('click', () => {
+                currentRenderMode = 'local';
+                closeCloudModal();
+                document.getElementById('file-input').click();
+            });
+            document.getElementById('modal-cloud-btn').addEventListener('click', () => {
+                currentRenderMode = 'cloud';
+                closeCloudModal();
+                document.getElementById('cloud-address-modal').classList.remove('hidden');
+            });
+            document.getElementById('modal-scan-btn').addEventListener('click', () => {
+                closeCloudModal();
+                document.getElementById('scan-simulation-modal').classList.remove('hidden');
+                startCamera();
+            });
+            document.getElementById('scan-close-btn').addEventListener('click', () => {
+                document.getElementById('scan-simulation-modal').classList.add('hidden');
+                stopCamera();
+            });
+            document.getElementById('scan-capture-btn').addEventListener('click', () => {
+                showMessage("正在处理扫描数据...", false);
+                setTimeout(() => {
+                    showMessage("扫描完成，正在生成点云...", false);
+                }, 1500);
+                setTimeout(() => {
+                    document.getElementById('scan-simulation-modal').classList.add('hidden');
+                    stopCamera();
+                    loadModel('torusKnot'); 
+                    showMessage("模型生成成功！");
+                }, 3000);
+            });
+            document.getElementById('address-cancel-btn').addEventListener('click', () => {
+                document.getElementById('cloud-address-modal').classList.add('hidden');
+                showCloudModal();
+            });
+            document.getElementById('address-confirm-btn').addEventListener('click', () => {
+                const val = document.getElementById('cloud-url-input').value;
+                if(val) {
+                    currentCloudUrl = val;
+                    document.getElementById('cloud-address-modal').classList.add('hidden');
+                    document.getElementById('file-input').click();
+                }
+            });
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (file.size > 100 * 1024 * 1024) {
+                showMessage(`检测到大文件 (${(file.size / 1024 / 1024).toFixed(1)}MB)，正在调用本地 CPU 全速处理...`);
+            }
+
+            const url = URL.createObjectURL(file);
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (currentRenderMode === 'cloud') {
+                showMessage(`正在上传至 ${currentCloudUrl}...`, false);
+                setTimeout(() => {
+                    showMessage("云端处理完成，正在下载...", false);
+                    processFileLoad(url, file.name, ext);
+                }, 2000);
+            } else {
+                // Defer execution to allow UI to update with "large file" message if needed
+                setTimeout(() => {
+                    processFileLoad(url, file.name, ext);
+                }, 50);
+            }
+            event.target.value = null;
+        }
+
+        function processFileLoad(url, name, ext) {
+            if (ext === 'skp') {
+                 // Simulate SKP processing
+                 showMessage("正在解析 SketchUp (SKP) 文件...");
+                 setTimeout(() => {
+                     showMessage("正在转换 SKP 到 GLB...");
+                     setTimeout(() => {
+                         // Load placeholder for simulation
+                         loadModel('torusKnot'); 
+                         // Rename it to match file
+                         if(activeModel) {
+                             activeModel.name = name;
+                             updateSceneListUI();
+                         }
+                         clearMessage();
+                         showMessage("SKP 模型加载完成");
+                     }, 1500);
+                 }, 1000);
+                 return;
+            }
+            
+            // If not large file message, show parsing
+            if (!currentStatusInterval) {
+                 showMessage(`正在解析 ${name}...`);
+            }
+            
+            const onLoad = (obj) => {
+                try {
+                    if (ext === 'gltf' || ext === 'glb') {
+                        let model = obj;
+                        if(obj.scene) model = obj.scene; 
+                        model.name = name;
+                        // Extract animations from the gltf object
+                        loadModel(model, obj.animations);
+                        return;
+                    }
+
+                    // Add direct handling for FBX
+                    if (ext === 'fbx') {
+                        obj.name = name;
+                        // FBXLoader attaches animations directly to the group
+                        loadModel(obj, obj.animations);
+                        return;
+                    }
+
+                    let modelToConvert = obj;
+                    if (ext === 'stl' || ext === 'ply') {
+                         if (ext === 'ply') obj.computeVertexNormals();
+                         modelToConvert = new THREE.Mesh(obj, defaultMaterial.clone());
+                    }
+                    modelToConvert.name = name;
+
+                    showMessage(`正在将 ${ext.toUpperCase()} 转换为 GLB...`);
+                    
+                    // Defer export to allow UI update
+                    setTimeout(() => {
+                        const exporter = new GLTFExporter();
+                        const options = {
+                            binary: true,
+                             dracoOptions: {
+                               compressionLevel: 7
+                            }
+                        };
+                        exporter.parse(
+                            modelToConvert,
+                            (glbBuffer) => {
+                                // Dispose intermediate model immediately to save memory
+                                disposeObject(modelToConvert);
+
+                                if (glbBuffer instanceof ArrayBuffer) {
+                                    const blob = new Blob([glbBuffer], { type: 'application/octet-stream' });
+                                    const glbUrl = URL.createObjectURL(blob);
+                                    
+                                    const loader = new GLTFLoader();
+                                    const dracoLoader = new DRACOLoader();
+                                    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+                                    loader.setDRACOLoader(dracoLoader);
+                                    
+                                    loader.load(glbUrl, (gltf) => {
+                                        const finalModel = gltf.scene;
+                                        finalModel.name = name.replace(/\.[^/.]+$/, "") + ".glb";
+                                        loadModel(finalModel, gltf.animations);
+                                        URL.revokeObjectURL(glbUrl);
+                                    }, undefined, (err) => {
+                                        console.error("GLB Reload Error", err);
+                                        clearMessage();
+                                        showMessage("转换后加载失败，显示原始模型", true);
+                                        // If reload fails, we might have lost the original if we disposed it too early without backup
+                                        // But usually reload of valid GLB works. 
+                                    });
+                                }
+                            },
+                            (err) => {
+                                console.error("GLB Export Error", err);
+                                clearMessage();
+                                showMessage("转换失败", true);
+                            },
+                            options
+                        );
+                    }, 100);
+
+                } catch (e) {
+                    console.error(e);
+                    clearMessage();
+                    showMessage("模型处理出错", true);
+                } finally {
+                    URL.revokeObjectURL(url);
+                }
+            };
+            const onError = (err) => {
+                console.error(err);
+                clearMessage();
+                showMessage("文件解析失败，请检查格式", true);
+                URL.revokeObjectURL(url);
+            };
+            try {
+                // Create loader with Draco support for initial import as well
+                const dracoLoader = new DRACOLoader();
+                dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+                
+                // Configure LoadingManager for TGA support
+                const manager = new THREE.LoadingManager();
+                manager.addHandler(/\.tga$/i, new TGALoader());
+
+                if (ext === 'gltf' || ext === 'glb') {
+                    const loader = new GLTFLoader(manager);
+                    loader.setDRACOLoader(dracoLoader);
+                    loader.load(url, onLoad, undefined, onError);
+                }
+                else if (ext === 'obj') new OBJLoader(manager).load(url, onLoad, undefined, onError);
+                else if (ext === 'fbx') new FBXLoader(manager).load(url, onLoad, undefined, onError);
+                else if (ext === 'stl') new STLLoader(manager).load(url, onLoad, undefined, onError);
+                else if (ext === 'ply') new PLYLoader(manager).load(url, onLoad, undefined, onError);
+                else {
+                      showMessage(`不支持的文件格式: .${ext}`, true);
+                }
+            } catch (e) {
+                console.error(e);
+                clearMessage();
+                showMessage("加载器初始化失败", true);
+            }
+        }
+
+        function disposeObject(obj) {
+            if (!obj) return;
+            obj.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            });
+            if (obj.parent) obj.parent.remove(obj);
+        }
+
+        function setupExportButtons() {
+            const save = (blob, filename) => {
+                const link = document.createElement('a');
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                link.click();
+                document.body.removeChild(link);
+            };
+            document.getElementById('export-glb-btn').addEventListener('click', () => {
+                document.getElementById('export-modal').classList.add('hidden');
+                
+                // Helper to validate texture for export
+                const isTextureValid = (texture) => {
+                    if (!texture || !texture.isTexture) return false;
+                    // CompressedTexture usually has an array in 'mipmaps' instead of 'image'
+                    // GLTFExporter requires 'image' to be Image, Canvas, or ImageBitmap
+                    if (!texture.image) return false;
+                    if (texture.image instanceof HTMLImageElement || 
+                        texture.image instanceof HTMLCanvasElement || 
+                        (typeof ImageBitmap !== 'undefined' && texture.image instanceof ImageBitmap)) {
+                        return true;
+                    }
+                    // Handle case where image is valid data object (e.g. DataTexture)
+                    // GLTFExporter supports image.data if defined
+                    if (texture.image && texture.image.data) {
+                        return true; 
+                    }
+                    return false; // Likely CompressedTexture or DataTexture which exporter fails on
+                };
+
+                // Create a clean clone for export to avoid modifying the scene or running into UV checker issues if unwanted
+                // However, cloning complex meshes with custom properties might be slow. 
+                // Instead, we can temporarily sanitize, export, then restore (or just sanitize if we don't care about keeping broken textures in memory).
+                // Let's sanitize activeModel temporarily.
+                
+                const originalMaps = new Map();
+
+                activeModel.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        const mats = Array.isArray(child.material) ? child.material : [child.material];
+                        mats.forEach(mat => {
+                            // Check map
+                            if (mat.map && !isTextureValid(mat.map)) {
+                                if (!originalMaps.has(mat)) originalMaps.set(mat, {});
+                                originalMaps.get(mat).map = mat.map;
+                                mat.map = null; 
+                            }
+                            // Check other maps
+                            ['aoMap', 'alphaMap', 'bumpMap', 'displacementMap', 'emissiveMap', 'envMap', 'lightMap', 'metalnessMap', 'normalMap', 'roughnessMap', 'clearcoatMap', 'clearcoatRoughnessMap', 'sheenColorMap', 'sheenRoughnessMap', 'specularIntensityMap', 'specularColorMap', 'thicknessMap', 'transmissionMap'].forEach(key => {
+                                if (mat[key] && !isTextureValid(mat[key])) {
+                                    if (!originalMaps.has(mat)) originalMaps.set(mat, {});
+                                    originalMaps.get(mat)[key] = mat[key];
+                                    mat[key] = null;
+                                }
+                            });
+                        });
+                    }
+                });
+
+                const options = {
+                    binary: true,
+                    dracoOptions: { compressionLevel: 7 }
+                };
+                
+                const exporter = new GLTFExporter();
+                exporter.parse(
+                    activeModel, 
+                    (result) => {
+                        // Restore invalid maps if any
+                        originalMaps.forEach((val, mat) => { 
+                            for (const key in val) mat[key] = val[key];
+                        });
+                        
+                        if (result instanceof ArrayBuffer) save(new Blob([result], { type: 'application/octet-stream' }), 'model.glb');
+                        else save(new Blob([JSON.stringify(result)], { type: 'text/plain' }), 'model.gltf');
+                    }, 
+                    (err) => {
+                        console.error(err);
+                        // Restore invalid maps if export fails
+                        originalMaps.forEach((val, mat) => { 
+                            for (const key in val) mat[key] = val[key];
+                        });
+                        showMessage("导出失败: " + err.message, true);
+                    }, 
+                    options
+                );
+            });
+            document.getElementById('export-obj-btn').addEventListener('click', () => {
+                document.getElementById('export-modal').classList.add('hidden');
+                const res = new OBJExporter().parse(activeModel);
+                save(new Blob([res], { type: 'text/plain' }), 'model.obj');
+            });
+            document.getElementById('export-stl-btn').addEventListener('click', () => {
+                document.getElementById('export-modal').classList.add('hidden');
+                const res = new STLExporter().parse(activeModel, { binary: true });
+                save(new Blob([res], { type: 'application/octet-stream' }), 'model.stl');
+            });
+        }
+
+        function setupDragControls() {
+            const bar = document.getElementById('transform-controls-bar');
+            // const dragHandle = document.getElementById('drag-handle'); // No longer needed specifically
+            
+            let isDragging = false, startX, startY, initialLeft, initialTop;
+            
+            // Attach event to the whole bar
+            bar.onmousedown = dragStart;
+            bar.ontouchstart = dragStart;
+
+            function dragStart(e) {
+                // Check if we clicked a button or input, if so, don't drag
+                if (e.target.closest('button') || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') {
+                    return; 
+                }
+
+                e.preventDefault();
+                isDragging = true;
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                startX = clientX;
+                startY = clientY;
+                
+                const rect = bar.getBoundingClientRect();
+                initialLeft = rect.left;
+                initialTop = rect.top;
+                
+                // Set fixed position to allow movement
+                bar.style.position = 'fixed';
+                bar.style.transform = 'none'; // Important: remove the centering transform
+                bar.style.left = initialLeft + 'px';
+                bar.style.top = initialTop + 'px';
+                
+                document.onmousemove = drag;
+                document.ontouchmove = drag;
+                document.onmouseup = dragEnd;
+                document.ontouchend = dragEnd;
+            }
+            
+            function drag(e) {
+                if (!isDragging) return;
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                const dx = clientX - startX;
+                const dy = clientY - startY;
+                bar.style.left = (initialLeft + dx) + 'px';
+                bar.style.top = (initialTop + dy) + 'px';
+            }
+            
+            function dragEnd() {
+                isDragging = false;
+                document.onmousemove = null;
+                document.ontouchmove = null;
+                document.onmouseup = null;
+                document.ontouchend = null;
+            }
+        }
+
+        function onPointerDown(event) {
+            const rect = container.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(objects, true);
+            if (intersects.length > 0) {
+                let selected = intersects[0].object;
+                while(selected.parent && !objects.includes(selected)) {
+                    selected = selected.parent;
+                }
+                if (objects.includes(selected)) {
+                    setActiveObject(selected);
+                }
+            }
+            
+            fadePanels(true);
+            
+            const onUp = () => {
+                fadePanels(false);
+                window.removeEventListener('mouseup', onUp);
+                window.removeEventListener('touchend', onUp);
+            };
+            window.addEventListener('mouseup', onUp);
+            window.addEventListener('touchend', onUp);
+        }
+        
+        // Lighting Logic
+        function updateLighting() {
+            // Apply Intensity Scale
+            const intensity = lightIntensityMultiplier;
+            
+            if(currentLightPreset === 0) { // Studio (Standard)
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.5 * intensity;
+                keyLight.color.setHex(0xffffff);
+                keyLight.position.set(10, 10, 5);
+                keyLight.intensity = 2.0 * intensity;
+                fillLight.color.setHex(0xffffff);
+                fillLight.position.set(-10, 5, 10);
+                fillLight.intensity = 0.8 * intensity;
+                scene.background = new THREE.Color(0x0f0f11);
+                document.getElementById('light-preset-name').innerText = "标准棚拍";
+            } else if(currentLightPreset === 1) { // Sunset
+                ambientLight.color.setHex(0xffdcb4);
+                ambientLight.intensity = 0.6 * intensity;
+                keyLight.color.setHex(0xffaa5e); // Orange-ish
+                keyLight.position.set(-15, 5, 10);
+                keyLight.intensity = 2.5 * intensity;
+                fillLight.color.setHex(0x6b8cff); // Blue-ish
+                fillLight.position.set(10, 5, -10);
+                fillLight.intensity = 1.0 * intensity;
+                scene.background = new THREE.Color(0x2a1d1d);
+                document.getElementById('light-preset-name').innerText = "暖色日落";
+            } else if(currentLightPreset === 2) { // Cyber/Neon
+                ambientLight.color.setHex(0x220033);
+                ambientLight.intensity = 0.8 * intensity;
+                keyLight.color.setHex(0xff00ff); // Magenta
+                keyLight.position.set(10, 10, 10);
+                keyLight.intensity = 3.0 * intensity;
+                fillLight.color.setHex(0x00ffff); // Cyan
+                fillLight.position.set(-10, 0, 10);
+                fillLight.intensity = 2.5 * intensity;
+                scene.background = new THREE.Color(0x050011);
+                document.getElementById('light-preset-name').innerText = "赛博霓虹";
+            } else if(currentLightPreset === 3) { // Dark / Contrast
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.1 * intensity;
+                keyLight.color.setHex(0xffffff);
+                keyLight.position.set(5, 10, 5);
+                keyLight.intensity = 4.0 * intensity;
+                fillLight.color.setHex(0xffffff);
+                fillLight.position.set(-5, 0, -5);
+                fillLight.intensity = 0.2 * intensity; // Very weak fill
+                scene.background = new THREE.Color(0x000000);
+                document.getElementById('light-preset-name').innerText = "暗黑高对比";
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        // New Zoom Logic
+        function zoomCamera(direction) {
+            const zoomSpeed = 0.1; 
+            const offset = new THREE.Vector3().subVectors(camera.position, orbitControls.target);
+            const dist = offset.length();
+            
+            let newDist = dist;
+            if (direction === 'in') {
+                newDist = dist * (1 - zoomSpeed);
+            } else {
+                newDist = dist * (1 + zoomSpeed);
+            }
+            
+            // Limit zoom
+            if (newDist < 0.5) newDist = 0.5;
+            if (newDist > 500) newDist = 500;
+            
+            offset.normalize().multiplyScalar(newDist);
+            camera.position.copy(orbitControls.target).add(offset);
+            orbitControls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Toggle Play/Pause Logic
+        function togglePlayPause() {
+            if (isPlaying) {
+                isPlaying = false;
+                document.getElementById('icon-play').classList.remove('hidden');
+                document.getElementById('icon-pause').classList.add('hidden');
+            } else {
+                isPlaying = true;
+                document.getElementById('icon-play').classList.add('hidden');
+                document.getElementById('icon-pause').classList.remove('hidden');
+            }
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('keydown', (event) => {
+                if (event.target.tagName === 'INPUT') return;
+                if (event.key === 'Delete' || event.key === 'Backspace') {
+                    if (activeModel) {
+                        confirmDeleteObject(activeModel); 
+                    }
+                }
+            });
+            document.getElementById('delete-cancel-btn').addEventListener('click', () => {
+                document.getElementById('delete-confirm-modal').classList.add('hidden');
+                objToDelete = null;
+            });
+            document.getElementById('delete-confirm-btn').addEventListener('click', () => {
+                if (objToDelete) {
+                    deleteObject(objToDelete);
+                    document.getElementById('delete-confirm-modal').classList.add('hidden');
+                    objToDelete = null;
+                }
+            });
+            document.querySelectorAll('.add-primitive-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const type = e.currentTarget.dataset.add; 
+                    loadModel(type);
+                });
+            });
+            document.getElementById('roughness-slider').addEventListener('input', (e) => applyMaterialProperties({ roughness: parseFloat(e.target.value) }));
+            document.getElementById('metalness-slider').addEventListener('input', (e) => applyMaterialProperties({ metalness: parseFloat(e.target.value) }));
+            // NEW: Clearcoat slider
+            document.getElementById('clearcoat-slider').addEventListener('input', (e) => applyMaterialProperties({ clearcoat: parseFloat(e.target.value) }));
+            
+            document.getElementById('color-picker').addEventListener('input', (e) => applyMaterialProperties({ color: e.target.value }));
+            document.getElementById('restore-color-btn').addEventListener('click', restoreOriginalMaterial);
+            
+            // New Lighting Controls
+            document.getElementById('light-intensity-slider').addEventListener('input', (e) => {
+                lightIntensityMultiplier = parseFloat(e.target.value);
+                document.getElementById('light-intensity-value').innerText = lightIntensityMultiplier.toFixed(1);
+                updateLighting();
+            });
+            document.getElementById('cycle-light-preset-btn').addEventListener('click', () => {
+                currentLightPreset = (currentLightPreset + 1) % 4;
+                updateLighting();
+                showMessage("灯光切换: " + document.getElementById('light-preset-name').innerText);
+            });
+
+            document.getElementById('toggle-uv-btn').addEventListener('click', toggleUVGrid); 
+            // FIX: Ensure click propagates correctly
+            document.getElementById('load-uv-btn').addEventListener('click', (e) => {
+                if(!activeModel) {
+                    showMessage("请先选择一个模型", true);
+                    return;
+                }
+                document.getElementById('uv-input').click();
+            });
+            document.getElementById('uv-input').addEventListener('change', handleUVUpload); 
+
+            document.getElementById('import-model-btn').addEventListener('click', () => showCloudModal());
+            document.getElementById('toggle-ui-btn').addEventListener('click', window.toggleUI); 
+            document.getElementById('export-menu-btn').addEventListener('click', () => {
+                if(!activeModel) { showMessage("请先选择一个模型", true); return; }
+                document.getElementById('export-modal').classList.remove('hidden');
+            });
+            document.getElementById('export-cancel-btn').addEventListener('click', () => {
+                document.getElementById('export-modal').classList.add('hidden');
+            });
+            
+            // Welcome Screen Listener
+            document.getElementById('enter-btn').addEventListener('click', () => {
+                const overlay = document.getElementById('welcome-overlay');
+                overlay.classList.add('hidden-overlay');
+                
+                // Intro transition
+                isIntroMode = false;
+                
+                // Show grid/ruler
+                if(gridHelper) gridHelper.visible = true;
+                isRulerEnabled = true;
+                document.getElementById('grid-helper-toggle').checked = true;
+                document.getElementById('ruler-toggle').checked = true;
+                updateRuler();
+                
+                // Transition camera
+                if(camera && orbitControls) {
+                    // Smooth move could be implemented, but direct set is fine for now
+                    camera.position.set(8, 5, 8);
+                    camera.lookAt(0,0,0);
+                    orbitControls.target.set(0,0,0);
+                    orbitControls.update();
+                }
+            });
+
+            setupExportButtons();
+            setupModals();
+            document.getElementById('auto-rotate-btn').addEventListener('click', (e) => {
+                orbitControls.autoRotate = !orbitControls.autoRotate;
+                const btn = e.currentTarget;
+                if(orbitControls.autoRotate) btn.classList.add('animate-pulse', 'ring-2', 'ring-red-400');
+                else btn.classList.remove('animate-pulse', 'ring-2', 'ring-red-400');
+            });
+            
+            // New Zoom Controls Listeners
+            document.getElementById('zoom-in-btn').addEventListener('click', () => zoomCamera('in'));
+            document.getElementById('zoom-out-btn').addEventListener('click', () => zoomCamera('out'));
+            
+            // NEW: Add listener for emissive slider
+            document.getElementById('emissive-slider').addEventListener('input', (e) => applyMaterialProperties({ emissiveIntensity: parseFloat(e.target.value) }));
+
+            // NEW: Animation play/pause listener
+            document.getElementById('play-pause-btn').addEventListener('click', togglePlayPause);
+
+            document.querySelectorAll('.transform-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const clickedBtn = e.currentTarget;
+                    const mode = clickedBtn.dataset.mode;
+                    const isAlreadyActive = clickedBtn.classList.contains('active');
+
+                    // UPDATED: Toggle logic for transform tools
+                    // Reset all buttons to gray first
+                    document.querySelectorAll('.transform-btn').forEach(b => {
+                        b.classList.remove('bg-indigo-600', 'active');
+                        b.classList.add('bg-gray-700');
+                    });
+
+                    if (isAlreadyActive) {
+                        // If clicked button was active, detach controls (toggle off)
+                        if (transformControls) transformControls.detach();
+                    } else {
+                        // If clicked button was inactive, attach controls and set mode (toggle on)
+                        if (activeModel) {
+                            transformControls.attach(activeModel);
+                        }
+                        transformControls.setMode(mode);
+                        
+                        // Highlight clicked
+                        clickedBtn.classList.remove('bg-gray-700');
+                        clickedBtn.classList.add('bg-indigo-600', 'active');
+                    }
+                });
+            });
+
+            document.getElementById('grid-helper-toggle').addEventListener('change', (e) => {
+                gridHelper.visible = e.target.checked;
+                renderer.render(scene, camera);
+            });
+            
+            const rulerCheckbox = document.getElementById('ruler-toggle');
+            if (rulerCheckbox) {
+                rulerCheckbox.addEventListener('change', (e) => {
+                    isRulerEnabled = e.target.checked;
+                    updateRuler();
+                    renderer.render(scene, camera);
+                    
+                    const btn = document.getElementById('toggle-ruler-btn');
+                    if (btn) {
+                        if (isRulerEnabled) {
+                            btn.classList.remove('bg-gray-700');
+                            btn.classList.add('bg-indigo-600');
+                        } else {
+                            btn.classList.remove('bg-indigo-600');
+                            btn.classList.add('bg-gray-700');
+                        }
+                    }
+                });
+            }
+            
+            // NEW: Unit conversion logic
+            const unitSelect = document.getElementById('unit-conversion-select');
+            if(unitSelect) {
+                unitSelect.addEventListener('change', (e) => {
+                    const parts = e.target.value.split(',');
+                    unitConversionFactor = parseFloat(parts[0]);
+                    currentUnitLabel = parts[1];
+                    updateRuler();
+                    renderer.render(scene, camera);
+                });
+            }
+            
+            const rulerBtn = document.getElementById('toggle-ruler-btn');
+            if (rulerBtn) {
+                if (isRulerEnabled) {
+                    rulerBtn.classList.remove('bg-gray-700');
+                    rulerBtn.classList.add('bg-indigo-600');
+                }
+                rulerBtn.addEventListener('click', () => {
+                    isRulerEnabled = !isRulerEnabled;
+                    updateRuler();
+                    renderer.render(scene, camera);
+                    if (isRulerEnabled) {
+                        rulerBtn.classList.remove('bg-gray-700');
+                        rulerBtn.classList.add('bg-indigo-600');
+                    } else {
+                        rulerBtn.classList.remove('bg-indigo-600');
+                        rulerBtn.classList.add('bg-gray-700');
+                    }
+                    if (rulerCheckbox) rulerCheckbox.checked = isRulerEnabled;
+                });
+            }
+            
+            // Reset Scale Button Listener
+            const resetScaleBtn = document.getElementById('reset-scale-btn');
+            if (resetScaleBtn) {
+                resetScaleBtn.addEventListener('click', resetModelScale);
+            }
+
+            document.getElementById('file-input').addEventListener('change', handleFileUpload);
+            
+            const localhostBtn = document.getElementById('use-localhost-btn');
+            if(localhostBtn) {
+                localhostBtn.addEventListener('click', () => {
+                    document.getElementById('cloud-url-input').value = "http://127.0.0.1:5000";
+                });
+            }
+            setupDragControls();
+        }
+
+        function onWindowResize() {
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.render(scene, camera);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            if (mixer && isPlaying) {
+                mixer.update(delta);
+            }
+            
+            // Intro Animation - Animate procedural parts
+            if (isIntroMode && introFlower) {
+                introFlower.rotation.y += 0.005;
+            }
+            
+            orbitControls.update();
+            renderer.render(scene, camera);
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f0f11);
+
+            // Initial Camera Setup (will be overridden by intro logic)
+            camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.1, 1000);
+            
+            // Setup for Intro: Top-down view
+            // CHANGED: Moved camera closer (from 12 to 7) to make flower appear larger
+            camera.position.set(0, 7, 0);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            updateGPUDisplay();
+
+            orbitControls = new OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+
+            transformControls = new TransformControls(camera, renderer.domElement);
+            transformControls.addEventListener('change', () => {
+                renderer.render(scene, camera);
+                updateRuler(); 
+            });
+            transformControls.addEventListener('dragging-changed', (event) => {
+                orbitControls.enabled = !event.value;
+                container.style.cursor = event.value ? 'move' : 'grab';
+                
+                fadePanels(event.value);
+            });
+            scene.add(transformControls);
+
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            
+            keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+            keyLight.position.set(10, 10, 5);
+            scene.add(keyLight);
+            
+            fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            fillLight.position.set(-10, 5, 10);
+            scene.add(fillLight);
+            
+            // Intro: Hide Grid and Ruler initially
+            gridHelper = new THREE.GridHelper(20, 20, 0x4f46e5, 0x4f46e5);
+            gridHelper.position.y = -3;
+            gridHelper.visible = false; // Hidden for intro
+            scene.add(gridHelper);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            container.addEventListener('pointerdown', onPointerDown);
+
+            // Load Default Model or Fallback
+            loadDefaultModel();
+            
+            // Update UI to reflect empty state
+            updateSceneListUI();
+            
+            // Sync UI checkboxes
+            document.getElementById('grid-helper-toggle').checked = false;
+            document.getElementById('ruler-toggle').checked = false;
+
+            setupEventListeners();
+            animate();
+        }
+
+        window.onload = init;
+
+    </script>
+</body>
+</html>
